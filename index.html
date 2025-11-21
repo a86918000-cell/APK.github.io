@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>聊天啟動器 — 純 HTML 範例</title>
+  <meta name="description" content="純 HTML 的聊天應用啟動器：小圖示、未讀紅點、點擊以 URL scheme 開啟 App、網頁通知（需授權）。">
+  <style>
+    :root{
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --muted: #70757a;
+      --accent: #0a84ff;
+      --danger: #ff3b30;
+      --radius: 14px;
+      --gap: 12px;
+      --phone-width: 360px;
+      --shadow: 0 8px 24px rgba(12,20,40,0.06);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", "Helvetica Neue", Arial;
+    }
+    html,body{height:100%;margin:0;background:var(--bg);font-family:var(--font);color:#111}
+    .container{max-width:860px;margin:28px auto;padding:20px;}
+    h1{margin:0 0 6px 0;font-size:20px;font-weight:600}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+    .phone{width:var(--phone-width);margin:20px auto;background:linear-gradient(180deg,#fff,#fbfdff);border-radius:20px;padding:14px;box-shadow:var(--shadow)}
+    .topbar{height:8px;background:linear-gradient(90deg,#eee,#f5f5f5);border-radius:6px;margin-bottom:12px}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .app{display:flex;align-items:center;gap:12px;padding:12px;background:var(--card);border-radius:12px;cursor:pointer;position:relative;box-shadow:0 6px 18px rgba(12,20,40,0.04);transition:transform .12s}
+    .app:active{transform:translateY(1px)}
+    .icon{width:56px;height:56px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:26px;background:linear-gradient(180deg,#fafafa,#f0f4ff);box-shadow:inset 0 -2px 6px rgba(0,0,0,0.02)}
+    .meta{flex:1;min-width:0}
+    .name{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sub{font-size:12px;color:var(--muted);margin-top:6px}
+    .badge{position:absolute;right:12px;top:12px;min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:var(--danger);color:white;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 12px rgba(255,59,48,0.12)}
+    .controls{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:14px}
+    button{padding:9px 14px;border-radius:10px;border:0;background:var(--accent);color:white;font-weight:600;cursor:pointer}
+    .btn-ghost{background:#fff;border:1px solid #eee;color:#333}
+    .note{font-size:13px;color:var(--muted);text-align:center;margin-top:10px}
+    footer{margin-top:18px;text-align:center;color:var(--muted);font-size:13px}
+    /* responsive */
+    @media (max-width:420px){
+      .phone{width:92%}
+      .grid{grid-template-columns:repeat(1,1fr)}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>聊天啟動器（純 HTML）</h1>
+    <p class="lead">集中常用聊天 App，顯示未讀紅點，點擊自動嘗試開啟該 App（URL scheme）。</p>
+
+    <div class="phone" role="region" aria-label="聊天啟動器示意">
+      <div class="topbar" aria-hidden="true"></div>
+      <div id="appsGrid" class="grid" role="list" aria-label="聊天應用列表"></div>
+
+      <div class="controls">
+        <button id="simulateBtn">模擬隨機訊息</button>
+        <button id="clearAll" class="btn-ghost">清除所有未讀</button>
+        <button id="reqPerm" class="btn-ghost">啟用通知</button>
+      </div>
+      <div class="note">提示：要在手機上使用 App 跳轉功能，需在手機瀏覽器開啟此頁並允許通知。</div>
+    </div>
+
+    <footer>使用說明：本頁為純前端示範，若要接收真實訊息需由後端或推播伺服器呼叫 <code>markUnread(appId, from, message)</code>。</footer>
+  </div>
+
+<script>
+/* === Config: 定義你要聚合的 App 列表 ===
+   id: 唯一識別
+   name: 顯示名稱
+   icon: 可用 emoji 或小圖示
+   scheme: URL scheme 嘗試開啟 app（手機上有效）
+   webUrl: fallback 網址（若沒有安裝 app）
+   deepPath: 可選，想跳的特定對象 path（由你管理）
+*/
+const apps = [
+  { id: 'whatsapp', name: 'WhatsApp', icon: '🟢', scheme: 'whatsapp://', webUrl: 'https://web.whatsapp.com/' },
+  { id: 'line', name: 'LINE', icon: '💚', scheme: 'line://', webUrl: 'https://line.me' },
+  { id: 'telegram', name: 'Telegram', icon: '✈️', scheme: 'tg://', webUrl: 'https://web.telegram.org/' },
+  { id: 'messenger', name: 'Messenger', icon: '💬', scheme: 'fb-messenger://', webUrl: 'https://www.messenger.com/' },
+  { id: 'tinder', name: 'Tinder', icon: '🔥', scheme: 'tinder://', webUrl: 'https://tinder.com/' },
+  { id: 'demo', name: '站內聊天室（範例）', icon: '📨', scheme: '', webUrl: '' }
+];
+
+// localStorage state
+const LS_KEY = 'chat_launcher_state_v1';
+const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+const state = {};
+apps.forEach(a => state[a.id] = saved[a.id] || { unread: 0, history: [] });
+
+// utilities
+function saveState(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+// render
+const grid = document.getElementById('appsGrid');
+function render(){
+  grid.innerHTML = '';
+  apps.forEach(a => {
+    const item = document.createElement('div');
+    item.className = 'app';
+    item.setAttribute('role','button');
+    item.setAttribute('aria-label', a.name);
+    item.onclick = () => openApp(a);
+
+    const icon = document.createElement('div'); icon.className='icon'; icon.textContent = a.icon; item.appendChild(icon);
+
+    const meta = document.createElement('div'); meta.className='meta';
+    const nm = document.createElement('div'); nm.className='name'; nm.textContent = a.name; meta.appendChild(nm);
+    const sub = document.createElement('div'); sub.className='sub';
+    const last = state[a.id].history.length ? state[a.id].history[state[a.id].history.length-1] : null;
+    sub.textContent = last ? ('最後：' + last.text) : '目前沒有新訊息';
+    meta.appendChild(sub);
+    item.appendChild(meta);
+
+    if (state[a.id].unread && state[a.id].unread > 0){
+      const b = document.createElement('div'); b.className='badge'; b.textContent = state[a.id].unread>99?'99+':state[a.id].unread; item.appendChild(b);
+    }
+    grid.appendChild(item);
+  });
+}
+render();
+
+// open app - try scheme, fallback to webUrl. Also clears unread for that app.
+function openApp(app){
+  // clear unread
+  state[app.id].unread = 0;
+  saveState(); render();
+
+  if (!app.scheme){
+    // demo internal chat panel
+    alert('這是範例內建聊天室，請自行替換成你要的內頁或 deep link。');
+    return;
+  }
+
+  // Try opening via iframe method (works on many mobile browsers)
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  document.body.appendChild(iframe);
+  try{
+    iframe.src = app.scheme;
+  }catch(e){}
+  setTimeout(()=> {
+    document.body.removeChild(iframe);
+    // fallback
+    if (app.webUrl) window.open(app.webUrl, '_blank');
+  }, 800);
+}
+
+// mark unread (call this from your backend or webhook to notify)
+function markUnread(appId, from, message){
+  if (!state[appId]) return;
+  state[appId].unread = (state[appId].unread || 0) + 1;
+  state[appId].history = state[appId].history || [];
+  state[appId].history.push({ from: from || '匿名', text: message || '(未提供內容)', ts: Date.now() });
+  saveState(); render();
+
+  // show system notification if allowed
+  if ("Notification" in window && Notification.permission === 'granted'){
+    const title = from ? `${from} 在 ${apps.find(x=>x.id===appId).name} 傳來訊息` : `在 ${apps.find(x=>x.id===appId).name} 收到新訊息`;
+    const n = new Notification(title, { body: message || '你有一則新訊息', silent: false });
+    if (navigator.vibrate) navigator.vibrate([200,80,200]);
+    n.onclick = () => {
+      window.focus();
+      const app = apps.find(x=>x.id===appId);
+      if (app) openApp(app);
+    };
+  } else {
+    // flash title
+    flashTitle('【新訊息】 ' + apps.find(x=>x.id===appId).name);
+  }
+}
+
+// title flash helper
+let origTitle = document.title;
+let flashTimer = null;
+function flashTitle(text){
+  if (flashTimer) clearInterval(flashTimer);
+  let show = true;
+  flashTimer = setInterval(() => {
+    document.title = show ? text : origTitle;
+    show = !show;
+  }, 700);
+  setTimeout(()=> { clearInterval(flashTimer); document.title = origTitle; flashTimer = null; }, 6000);
+}
+
+// Request notification permission
+document.getElementById('reqPerm').addEventListener('click', () => {
+  if (!("Notification" in window)) return alert('此瀏覽器不支援通知 API');
+  Notification.requestPermission().then(res => {
+    if (res === 'granted') alert('已允許通知'); else alert('通知未被允許');
+  });
+});
+
+// simulate incoming
+document.getElementById('simulateBtn').addEventListener('click', () => {
+  const a = apps[Math.floor(Math.random()*apps.length)];
+  const msgs = ['嗨！','有人在嗎？','照片已傳送','想約出來？','收到！'];
+  const m = msgs[Math.floor(Math.random()*msgs.length)];
+  markUnread(a.id, '小明', m);
+});
+
+// clear all
+document.getElementById('clearAll').addEventListener('click', () => {
+  apps.forEach(a => { state[a.id].unread = 0; state[a.id].history = []; });
+  saveState(); render();
+});
+
+// Expose markUnread for external calls (e.g., backend via iframe postMessage)
+window.markUnread = markUnread;
+</script>
+</body>
+</html>
